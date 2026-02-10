@@ -22,11 +22,18 @@ export class BayClubBot {
    * Initialize the browser
    */
   async init() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
     this.stagehand = new Stagehand({
-      env: 'LOCAL',
-      headless: false, // Set to true in production
+      env: isProduction ? 'BROWSERBASE' : 'LOCAL',
+      headless: isProduction, // headless in production
       verbose: 1,
-      debugDom: true,
+      debugDom: !isProduction,
+      // Browserbase credentials (required for production)
+      ...(isProduction && {
+        apiKey: process.env.BROWSERBASE_API_KEY,
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+      }),
     });
 
     await this.stagehand.init();
