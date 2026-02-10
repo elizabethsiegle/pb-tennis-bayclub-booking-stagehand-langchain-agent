@@ -8,8 +8,9 @@ import { fileURLToPath } from 'url';
 import { BookingAgent } from './chat/langchain-agent.js';
 
 // Load environment variables
+// __dirname is server/dist/ when compiled, so we need to go up two levels to reach project root
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, '../.env') });
+config({ path: resolve(__dirname, '../../.env') });
 
 const app = express();
 const httpServer = createServer(app);
@@ -28,8 +29,9 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static files from the client build in production
+// __dirname is server/dist/ when compiled, so we need to go up two levels
 if (isProduction) {
-  const clientDistPath = resolve(__dirname, '../client/dist');
+  const clientDistPath = resolve(__dirname, '../../client/dist');
   app.use(express.static(clientDistPath));
 }
 
@@ -44,7 +46,7 @@ app.get('/health', (req, res) => {
 // Serve index.html for all other routes in production (SPA support)
 if (isProduction) {
   app.get('*', (req, res) => {
-    res.sendFile(resolve(__dirname, '../client/dist/index.html'));
+    res.sendFile(resolve(__dirname, '../../client/dist/index.html'));
   });
 }
 
