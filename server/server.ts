@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { config } from 'dotenv';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { BookingAgent } from './chat/langchain-agent.js';
 
@@ -13,9 +13,12 @@ config({ path: resolve(__dirname, '../.env') });
 
 const app = express();
 const httpServer = createServer(app);
+
+const isProduction = process.env.NODE_ENV === 'production';
+
 const io = new Server(httpServer, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: isProduction ? undefined : 'http://localhost:5173',
     methods: ['GET', 'POST']
   }
 });
@@ -24,6 +27,12 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+// Serve static files from the client build in production
+if (isProduction) {
+  const clientDistPath = resolve(__dirname, '../client/dist');
+  app.use(express.static(clientDistPath));
+}
+
 // Store agents per socket connection
 const agents = new Map<string, BookingAgent>();
 
@@ -31,6 +40,13 @@ const agents = new Map<string, BookingAgent>();
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Serve index.html for all other routes in production (SPA support)
+if (isProduction) {
+  app.get('*', (req, res) => {
+    res.sendFile(resolve(__dirname, '../client/dist/index.html'));
+  });
+}
 
 // Socket.IO connection handling
 io.on('connection', async (socket) => {

@@ -15,7 +15,9 @@ export function useChat() {
   const [status, setStatus] = useState<string>('Connecting...');
 
   useEffect(() => {
-    const newSocket = io('http://localhost:3000');
+    // In production, connect to the same host; in development, use localhost:3000
+    const socketUrl = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
+    const newSocket = io(socketUrl);
 
     newSocket.on('connect', () => {
       console.log('Connected to server');
