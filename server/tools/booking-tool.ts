@@ -2,13 +2,29 @@ import { DynamicStructuredTool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { BayClubBot, Sport } from '../booking/stagehand-bot.js';
 import { dateParser } from '../chat/date-parser.js';
+import { calendarService } from '../calendar/google-calendar.js';
 
 export class BookingToolManager {
   private bot: BayClubBot;
   private initialized = false;
+  private calendarInitialized = false;
 
   constructor(username: string, password: string) {
     this.bot = new BayClubBot(username, password);
+    // Initialize calendar service in background
+    this.initCalendar();
+  }
+
+  /**
+   * Initialize calendar service (non-blocking)
+   */
+  private async initCalendar() {
+    try {
+      await calendarService.init();
+      this.calendarInitialized = calendarService.isAvailable();
+    } catch (error) {
+      console.error('[BookingToolManager] Calendar init error:', error);
+    }
   }
 
   /**
@@ -114,7 +130,22 @@ IMPORTANT: If user just wants to check availability, use "query_times" action. O
             if (success) {
               // Close the browser session after successful booking to save Browserbase minutes
               await this.closeBrowser();
-              return `Successfully booked ${sport} court on ${formattedDate} at ${time} with Samuel Wang!`;
+
+              // Add to Google Calendar
+              let calendarMessage = '';
+              if (this.calendarInitialized) {
+                const calendarSuccess = await calendarService.addCourtBooking(
+                  sport as 'tennis' | 'pickleball',
+                  parsedDate,
+                  time,
+                  'Samuel Wang'
+                );
+                if (calendarSuccess) {
+                  calendarMessage = ' 📅 Added to your Google Calendar!';
+                }
+              }
+
+              return `Successfully booked ${sport} court on ${formattedDate} at ${time} with Samuel Wang!${calendarMessage}`;
             } else {
               return `Failed to book ${sport} court on ${formattedDate} at ${time}. The slot may no longer be available.`;
             }

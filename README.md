@@ -61,6 +61,35 @@ An AI-powered conversational interface for booking tennis and pickleball courts 
    - Backend server on http://localhost:3000
    - Frontend on http://localhost:5173
 
+## Google Calendar Integration (Optional)
+
+Automatically add court bookings to your Google Calendar.
+
+### Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select existing)
+3. Enable the **Google Calendar API**
+4. Create a **Service Account**:
+   - Go to "IAM & Admin" → "Service Accounts"
+   - Create a new service account
+   - Download the JSON credentials file
+5. **Share your calendar** with the service account:
+   - Open Google Calendar
+   - Go to calendar settings → "Share with specific people"
+   - Add the service account email (from the JSON file)
+   - Give "Make changes to events" permission
+
+### Local Development
+
+Save the credentials file as `google-calendar-credentials.json` in the project root.
+
+### Production (DigitalOcean)
+
+Add the entire JSON content as the `GOOGLE_CALENDAR_CREDENTIALS` environment variable.
+
+Optionally set `GOOGLE_CALENDAR_ID` to a specific calendar ID (defaults to 'primary').
+
 ## Usage
 
 Open http://localhost:5173 in your browser and start chatting!
@@ -77,7 +106,8 @@ Example conversations:
 2. **LangChain Agent**: Claude processes your request and decides what to do
 3. **Date Parsing**: Natural language dates are converted to actual dates
 4. **Stagehand Automation**: Browser automation logs into Bay Club and performs actions
-5. **Response**: Available times or booking confirmation is sent back
+5. **Google Calendar**: Successful bookings are added to your calendar (if configured)
+6. **Response**: Available times or booking confirmation is sent back
 
 ## Important Notes
 
@@ -164,6 +194,8 @@ Add these environment variables in DigitalOcean App Settings:
 | `BAYCLUB_PASSWORD` | Bay Club login password |
 | `BROWSERBASE_API_KEY` | Your Browserbase API key |
 | `BROWSERBASE_PROJECT_ID` | Your Browserbase project ID |
+| `GOOGLE_CALENDAR_CREDENTIALS` | (Optional) Google service account JSON |
+| `GOOGLE_CALENDAR_ID` | (Optional) Calendar ID, defaults to 'primary' |
 
 ### 4. Deploy
 
