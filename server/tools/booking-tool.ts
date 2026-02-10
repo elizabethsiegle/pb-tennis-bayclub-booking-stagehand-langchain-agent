@@ -31,6 +31,19 @@ export class BookingToolManager {
   async cleanup() {
     if (this.initialized) {
       await this.bot.close();
+      this.initialized = false;
+    }
+  }
+
+  /**
+   * Close the browser session (can be re-initialized later)
+   */
+  private async closeBrowser() {
+    if (this.initialized) {
+      console.log('[BookingToolManager] Closing browser session...');
+      await this.bot.close();
+      this.initialized = false;
+      console.log('[BookingToolManager] Browser session closed.');
     }
   }
 
@@ -99,6 +112,8 @@ IMPORTANT: If user just wants to check availability, use "query_times" action. O
             const success = await this.bot.bookCourt(time);
 
             if (success) {
+              // Close the browser session after successful booking to save Browserbase minutes
+              await this.closeBrowser();
               return `Successfully booked ${sport} court on ${formattedDate} at ${time} with Samuel Wang!`;
             } else {
               return `Failed to book ${sport} court on ${formattedDate} at ${time}. The slot may no longer be available.`;
