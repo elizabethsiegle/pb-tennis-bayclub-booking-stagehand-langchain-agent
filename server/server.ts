@@ -17,11 +17,18 @@ const httpServer = createServer(app);
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Debug logging
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('isProduction:', isProduction);
+console.log('__dirname:', __dirname);
+
 // In production, serve static files from client/dist
 // Path varies based on where server runs from
 const clientDistPath = isProduction 
   ? resolve(__dirname, '../../client/dist')  // From server/dist -> ../../client/dist
   : null;
+
+console.log('clientDistPath:', clientDistPath);
 
 if (isProduction && clientDistPath) {
   console.log('Serving static files from:', clientDistPath);
