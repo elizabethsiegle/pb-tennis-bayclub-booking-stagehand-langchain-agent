@@ -17,6 +17,16 @@ const httpServer = createServer(app);
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// In production, serve static files from client/dist
+// Path varies based on where server runs from
+const clientDistPath = isProduction 
+  ? resolve(__dirname, '../../client/dist')  // From server/dist -> ../../client/dist
+  : null;
+
+if (isProduction && clientDistPath) {
+  console.log('Serving static files from:', clientDistPath);
+}
+
 const io = new Server(httpServer, {
   cors: {
     origin: isProduction ? undefined : 'http://localhost:5173',
@@ -29,9 +39,7 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static files from the client build in production
-// __dirname is server/dist/ when compiled, so we need to go up two levels
-if (isProduction) {
-  const clientDistPath = resolve(__dirname, '../../client/dist');
+if (isProduction && clientDistPath) {
   app.use(express.static(clientDistPath));
 }
 
@@ -44,9 +52,9 @@ app.get('/health', (req, res) => {
 });
 
 // Serve index.html for all other routes in production (SPA support)
-if (isProduction) {
+if (isProduction && clientDistPath) {
   app.get('*', (req, res) => {
-    res.sendFile(resolve(__dirname, '../../client/dist/index.html'));
+    res.sendFile(resolve(clientDistPath, 'index.html'));
   });
 }
 
