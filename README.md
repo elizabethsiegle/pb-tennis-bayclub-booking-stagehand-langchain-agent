@@ -10,20 +10,23 @@ An AI-powered conversational interface for booking tennis and pickleball courts 
 - Automated browser interaction using Stagehand
 - Supports both tennis (90 min) and pickleball (60 min) bookings
 - Automatically adds Samuel Wang as a buddy
+- Production-ready with DigitalOcean App Platform and Browserbase
 
 ## Tech Stack
 
 - **Backend**: Node.js, Express, Socket.IO
 - **Frontend**: React, TypeScript, Vite
 - **AI**: LangChain with Anthropic Claude
-- **Browser Automation**: Stagehand
+- **Browser Automation**: Stagehand + Browserbase (cloud browsers)
 - **Date Handling**: date-fns
+- **Deployment**: DigitalOcean App Platform
 
 ## Prerequisites
 
 - Node.js 18+ installed
 - An Anthropic API key
 - Bay Club Connect account credentials
+- (For production) Browserbase account
 
 ## Setup
 
@@ -128,4 +131,50 @@ npm run build
 npm start
 ```
 
-Set `headless: true` in [server/booking/stagehand-bot.ts](server/booking/stagehand-bot.ts:17) before deploying.
+## Deploying to DigitalOcean App Platform
+
+### 1. Set Up Browserbase
+
+Since DigitalOcean doesn't have a browser installed, you need [Browserbase](https://browserbase.com) for cloud-hosted browsers:
+
+1. Sign up at [browserbase.com](https://browserbase.com)
+2. Create a new project
+3. Copy your **API Key** and **Project ID**
+
+### 2. Create DigitalOcean App
+
+1. Go to [DigitalOcean App Platform](https://cloud.digitalocean.com/apps)
+2. Click **Create App** and connect your GitHub repository
+3. Configure the app:
+   - **Source**: Your GitHub repo, `main` branch
+   - **Type**: Web Service
+   - **Build Command**: `npm install && npm run build`
+   - **Run Command**: `npm start`
+   - **HTTP Port**: `3000`
+
+### 3. Set Environment Variables
+
+Add these environment variables in DigitalOcean App Settings:
+
+| Variable | Description |
+|----------|-------------|
+| `NODE_ENV` | `production` |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+| `BAYCLUB_USERNAME` | Bay Club login username |
+| `BAYCLUB_PASSWORD` | Bay Club login password |
+| `BROWSERBASE_API_KEY` | Your Browserbase API key |
+| `BROWSERBASE_PROJECT_ID` | Your Browserbase project ID |
+
+### 4. Deploy
+
+Click **Deploy** and wait for the build to complete. Your app will be available at the provided URL.
+
+### How Production Works
+
+- In development (`NODE_ENV !== 'production'`): Uses local Chrome browser
+- In production (`NODE_ENV === 'production'`): Uses Browserbase cloud browsers
+
+The server automatically:
+- Serves the React frontend from `/client/dist`
+- Handles WebSocket connections for real-time chat
+- Connects to Browserbase for browser automation
