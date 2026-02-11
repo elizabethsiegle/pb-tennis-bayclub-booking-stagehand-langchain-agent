@@ -53,8 +53,16 @@ if (isProduction && clientDistPath) {
   app.use(express.static(clientDistPath));
 }
 
-// Store agents per socket connection
-const agents = new Map<string, BookingAgent>();
+// Store agents per session (not socket) for persistence across reconnections
+const sessions = new Map<string, {
+  agent: BookingAgent;
+  socketId: string | null;
+  pendingMessages: Array<{ from: string; text: string; timestamp: string }>;
+  isProcessing: boolean;
+}>();
+
+// Map socket IDs to session IDs for quick lookup
+const socketToSession = new Map<string, string>();
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -68,87 +76,192 @@ if (isProduction && clientDistPath) {
   });
 }
 
+// Helper to send message to session (finds current socket)
+function sendToSession(sessionId: string, event: string, data: unknown) {
+  const session = sessions.get(sessionId);
+  if (!session || !session.socketId) return false;
+  
+  const socket = io.sockets.sockets.get(session.socketId);
+  if (socket && socket.connected) {
+    socket.emit(event, data);
+    return true;
+  }
+  return false;
+}
+
 // Socket.IO connection handling
 io.on('connection', async (socket) => {
-  console.log(`Client connected: ${socket.id}`);
+  const sessionId = socket.handshake.auth?.sessionId as string;
+  console.log(`Client connected: ${socket.id}, session: ${sessionId || 'none'}`);
 
-  // Initialize agent for this connection
-  try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const username = process.env.BAYCLUB_USERNAME;
-    const password = process.env.BAYCLUB_PASSWORD;
+  if (!sessionId) {
+    socket.emit('error', 'No session ID provided');
+    socket.disconnect();
+    return;
+  }
 
-    if (!apiKey || !username || !password) {
-      socket.emit('error', 'Server configuration error: Missing credentials');
+  // Check if we have an existing session
+  let session = sessions.get(sessionId);
+  
+  if (session) {
+    // Reconnecting to existing session
+    console.log(`Resuming session ${sessionId} (was socket ${session.socketId})`);
+    
+    // Update socket mapping
+    if (session.socketId) {
+      socketToSession.delete(session.socketId);
+    }
+    session.socketId = socket.id;
+    socketToSession.set(socket.id, sessionId);
+    
+    // Send ready status
+    if (session.isProcessing) {
+      socket.emit('status', 'Processing your request...');
+      socket.emit('typing', true);
+    } else {
+      socket.emit('status', 'Reconnected! Ready to help.');
+      socket.emit('ready');
+    }
+    
+    // Deliver any pending messages
+    if (session.pendingMessages.length > 0) {
+      console.log(`Delivering ${session.pendingMessages.length} pending messages to session ${sessionId}`);
+      for (const msg of session.pendingMessages) {
+        socket.emit('message', msg);
+      }
+      session.pendingMessages = [];
+      socket.emit('typing', false);
+    }
+  } else {
+    // New session - initialize agent
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      const username = process.env.BAYCLUB_USERNAME;
+      const password = process.env.BAYCLUB_PASSWORD;
+
+      if (!apiKey || !username || !password) {
+        socket.emit('error', 'Server configuration error: Missing credentials');
+        return;
+      }
+
+      socket.emit('status', 'Initializing booking agent...');
+
+      const agent = new BookingAgent(apiKey, username, password);
+      await agent.initialize();
+      
+      session = {
+        agent,
+        socketId: socket.id,
+        pendingMessages: [],
+        isProcessing: false,
+      };
+      sessions.set(sessionId, session);
+      socketToSession.set(socket.id, sessionId);
+
+      socket.emit('status', 'Connected! Ask me to book a tennis or pickleball court.');
+      socket.emit('ready');
+
+      console.log(`New session ${sessionId} initialized for socket ${socket.id}`);
+    } catch (error) {
+      console.error(`Error initializing agent for session ${sessionId}:`, error);
+      socket.emit('error', 'Failed to initialize booking agent');
       return;
     }
-
-    const agent = new BookingAgent(apiKey, username, password);
-
-    // Emit status update
-    socket.emit('status', 'Initializing booking agent...');
-
-    await agent.initialize();
-    agents.set(socket.id, agent);
-
-    socket.emit('status', 'Connected! Ask me to book a tennis or pickleball court.');
-    socket.emit('ready');
-
-    console.log(`Agent initialized for ${socket.id}`);
-  } catch (error) {
-    console.error(`Error initializing agent for ${socket.id}:`, error);
-    socket.emit('error', 'Failed to initialize booking agent');
   }
+
+  // Handle request for pending messages (on reconnect)
+  socket.on('get_pending', ({ sessionId: reqSessionId }) => {
+    const sess = sessions.get(reqSessionId);
+    if (sess && sess.pendingMessages.length > 0) {
+      console.log(`Delivering ${sess.pendingMessages.length} pending messages on request`);
+      for (const msg of sess.pendingMessages) {
+        socket.emit('message', msg);
+      }
+      sess.pendingMessages = [];
+      socket.emit('typing', false);
+    }
+  });
 
   // Handle incoming messages
   socket.on('message', async (data: { message: string }) => {
-    console.log(`Message from ${socket.id}:`, data.message);
-
-    const agent = agents.get(socket.id);
-    if (!agent) {
-      socket.emit('error', 'Agent not initialized');
+    const sessId = socketToSession.get(socket.id);
+    if (!sessId) {
+      socket.emit('error', 'Session not found');
+      return;
+    }
+    
+    const sess = sessions.get(sessId);
+    if (!sess) {
+      socket.emit('error', 'Session not found');
       return;
     }
 
+    console.log(`Message from session ${sessId} (socket ${socket.id}):`, data.message);
+
     try {
-      // Emit typing indicator
+      // Mark as processing and emit typing indicator
+      sess.isProcessing = true;
       socket.emit('typing', true);
 
       // Process message through agent
-      const response = await agent.chat(data.message);
+      const response = await sess.agent.chat(data.message);
+      sess.isProcessing = false;
 
-      // Check if socket is still connected before sending response
-      if (socket.connected) {
-        socket.emit('typing', false);
-        socket.emit('message', {
-          from: 'assistant',
-          text: response,
-          timestamp: new Date().toISOString()
-        });
+      const responseMsg = {
+        from: 'assistant',
+        text: response,
+        timestamp: new Date().toISOString()
+      };
+
+      // Try to send to current socket for this session
+      if (!sendToSession(sessId, 'message', responseMsg)) {
+        // Socket disconnected - store as pending
+        console.log(`Session ${sessId} socket disconnected, storing response as pending`);
+        sess.pendingMessages.push(responseMsg);
       } else {
-        console.log(`Socket ${socket.id} disconnected during processing, response not sent`);
+        sendToSession(sessId, 'typing', false);
       }
     } catch (error) {
-      console.error(`Error processing message for ${socket.id}:`, error);
-      if (socket.connected) {
-        socket.emit('typing', false);
-        socket.emit('error', 'Failed to process message');
+      console.error(`Error processing message for session ${sessId}:`, error);
+      sess.isProcessing = false;
+      if (!sendToSession(sessId, 'error', 'Failed to process message')) {
+        sess.pendingMessages.push({
+          from: 'system',
+          text: 'Error: Failed to process message',
+          timestamp: new Date().toISOString()
+        });
       }
+      sendToSession(sessId, 'typing', false);
     }
   });
 
   // Handle disconnection
-  socket.on('disconnect', async () => {
-    console.log(`Client disconnected: ${socket.id}`);
+  socket.on('disconnect', async (reason) => {
+    const sessId = socketToSession.get(socket.id);
+    console.log(`Client disconnected: ${socket.id}, session: ${sessId}, reason: ${reason}`);
 
-    const agent = agents.get(socket.id);
-    if (agent) {
-      try {
-        await agent.cleanup();
-      } catch (error) {
-        console.error(`Error cleaning up agent for ${socket.id}:`, error);
+    if (sessId) {
+      const sess = sessions.get(sessId);
+      if (sess) {
+        // Don't delete session - keep it for reconnection
+        // Just clear the socket reference
+        sess.socketId = null;
+        
+        // Set a timeout to clean up abandoned sessions (5 minutes)
+        setTimeout(async () => {
+          const currentSess = sessions.get(sessId);
+          if (currentSess && currentSess.socketId === null) {
+            console.log(`Cleaning up abandoned session ${sessId}`);
+            try {
+              await currentSess.agent.cleanup();
+            } catch (error) {
+              console.error(`Error cleaning up agent for session ${sessId}:`, error);
+            }
+            sessions.delete(sessId);
+          }
+        }, 5 * 60 * 1000); // 5 minutes
       }
-      agents.delete(socket.id);
+      socketToSession.delete(socket.id);
     }
   });
 });
@@ -164,13 +277,13 @@ httpServer.listen(PORT, () => {
 process.on('SIGINT', async () => {
   console.log('Shutting down gracefully...');
 
-  // Cleanup all agents
-  for (const [socketId, agent] of agents.entries()) {
+  // Cleanup all sessions
+  for (const [sessionId, session] of sessions.entries()) {
     try {
-      await agent.cleanup();
-      console.log(`Cleaned up agent for ${socketId}`);
+      await session.agent.cleanup();
+      console.log(`Cleaned up session ${sessionId}`);
     } catch (error) {
-      console.error(`Error cleaning up agent for ${socketId}:`, error);
+      console.error(`Error cleaning up session ${sessionId}:`, error);
     }
   }
 
