@@ -38,7 +38,10 @@ const io = new Server(httpServer, {
   cors: {
     origin: isProduction ? undefined : 'http://localhost:5173',
     methods: ['GET', 'POST']
-  }
+  },
+  // Increase timeouts for long-running operations (Stagehand can take 60+ seconds)
+  pingTimeout: 120000,  // 2 minutes
+  pingInterval: 25000,  // 25 seconds
 });
 
 // Middleware

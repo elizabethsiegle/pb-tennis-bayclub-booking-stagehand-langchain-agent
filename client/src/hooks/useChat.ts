@@ -17,7 +17,10 @@ export function useChat() {
   useEffect(() => {
     // In production, connect to the same host; in development, use localhost:3000
     const socketUrl = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
-    const newSocket = io(socketUrl);
+    const newSocket = io(socketUrl, {
+      // Match server timeout settings for long-running operations
+      timeout: 120000,  // 2 minutes connection timeout
+    });
 
     newSocket.on('connect', () => {
       console.log('Connected to server');
