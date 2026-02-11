@@ -35,15 +35,8 @@ export function useChat() {
     });
 
     newSocket.on('status', (statusMessage: string) => {
+      // Only update the status bar, don't add to chat messages
       setStatus(statusMessage);
-      setMessages((prev) => [
-        ...prev,
-        {
-          from: 'system',
-          text: statusMessage,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
     });
 
     newSocket.on('message', (message: Message) => {
