@@ -76,19 +76,48 @@ export class GoogleCalendarService {
 
     try {
       console.log('[Calendar] Adding event:', event.summary);
+      console.log('[Calendar] Start:', event.startDateTime.toISOString());
+      console.log('[Calendar] End:', event.endDateTime.toISOString());
 
       const calendarId = process.env.GOOGLE_CALENDAR_ID || 'primary';
+
+      // Format datetime as local time string without timezone (YYYY-MM-DDTHH:MM:SS)
+      // Google will interpret this in the specified timeZone
+      const formatLocalDateTime = (date: Date, hours: number, minutes: number): string => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const h = String(hours).padStart(2, '0');
+        const m = String(minutes).padStart(2, '0');
+        return `${year}-${month}-${day}T${h}:${m}:00`;
+      };
+
+      // Extract the intended local time from the Date objects
+      // (these were set with setHours in parseTimeToDate)
+      const startLocal = formatLocalDateTime(
+        event.startDateTime,
+        event.startDateTime.getHours(),
+        event.startDateTime.getMinutes()
+      );
+      const endLocal = formatLocalDateTime(
+        event.endDateTime,
+        event.endDateTime.getHours(),
+        event.endDateTime.getMinutes()
+      );
+
+      console.log('[Calendar] Local start:', startLocal);
+      console.log('[Calendar] Local end:', endLocal);
 
       const calendarEvent: calendar_v3.Schema$Event = {
         summary: event.summary,
         location: event.location,
         description: event.description,
         start: {
-          dateTime: event.startDateTime.toISOString(),
+          dateTime: startLocal,
           timeZone: 'America/Los_Angeles',
         },
         end: {
-          dateTime: event.endDateTime.toISOString(),
+          dateTime: endLocal,
           timeZone: 'America/Los_Angeles',
         },
       };
