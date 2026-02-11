@@ -19,18 +19,27 @@ export function useChat() {
     const socketUrl = import.meta.env.PROD ? window.location.origin : 'http://localhost:3000';
     const newSocket = io(socketUrl, {
       // Match server timeout settings for long-running operations
-      timeout: 120000,  // 2 minutes connection timeout
+      timeout: 120000,      // 2 minutes connection timeout
+      reconnection: true,   // Enable reconnection
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
 
     newSocket.on('connect', () => {
-      console.log('Connected to server');
+      console.log('Connected to server, socket ID:', newSocket.id);
       setIsConnected(true);
     });
 
-    newSocket.on('disconnect', () => {
-      console.log('Disconnected from server');
+    newSocket.on('disconnect', (reason) => {
+      console.log('Disconnected from server, reason:', reason);
       setIsConnected(false);
-      setStatus('Disconnected');
+      setStatus('Disconnected - Reconnecting...');
+    });
+
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('Reconnected after', attemptNumber, 'attempts');
+      setStatus('Reconnected! You may need to resend your last message.');
     });
 
     newSocket.on('ready', () => {

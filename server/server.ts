@@ -117,17 +117,23 @@ io.on('connection', async (socket) => {
       // Process message through agent
       const response = await agent.chat(data.message);
 
-      // Emit response
-      socket.emit('typing', false);
-      socket.emit('message', {
-        from: 'assistant',
-        text: response,
-        timestamp: new Date().toISOString()
-      });
+      // Check if socket is still connected before sending response
+      if (socket.connected) {
+        socket.emit('typing', false);
+        socket.emit('message', {
+          from: 'assistant',
+          text: response,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.log(`Socket ${socket.id} disconnected during processing, response not sent`);
+      }
     } catch (error) {
       console.error(`Error processing message for ${socket.id}:`, error);
-      socket.emit('typing', false);
-      socket.emit('error', 'Failed to process message');
+      if (socket.connected) {
+        socket.emit('typing', false);
+        socket.emit('error', 'Failed to process message');
+      }
     }
   });
 
