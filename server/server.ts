@@ -61,6 +61,9 @@ const sessions = new Map<string, {
   isProcessing: boolean;
 }>();
 
+// Track sessions currently being initialized (to prevent race conditions)
+const initializingSessions = new Map<string, Promise<unknown>>();
+
 // Map socket IDs to session IDs for quick lookup
 const socketToSession = new Map<string, string>();
 
@@ -100,6 +103,18 @@ io.on('connection', async (socket) => {
     return;
   }
 
+  // Check if session is currently being initialized by another socket
+  const initPromise = initializingSessions.get(sessionId);
+  if (initPromise) {
+    console.log(`Session ${sessionId} is being initialized, waiting...`);
+    socket.emit('status', 'Initializing booking agent...');
+    try {
+      await initPromise;
+    } catch {
+      // Initialization failed, will be handled below
+    }
+  }
+
   // Check if we have an existing session
   let session = sessions.get(sessionId);
   
@@ -133,31 +148,40 @@ io.on('connection', async (socket) => {
       socket.emit('typing', false);
     }
   } else {
-    // New session - initialize agent
-    try {
+    // New session - initialize agent (with lock to prevent race conditions)
+    const initializeSession = async () => {
       const apiKey = process.env.ANTHROPIC_API_KEY;
       const username = process.env.BAYCLUB_USERNAME;
       const password = process.env.BAYCLUB_PASSWORD;
 
       if (!apiKey || !username || !password) {
-        socket.emit('error', 'Server configuration error: Missing credentials');
-        return;
+        throw new Error('Server configuration error: Missing credentials');
       }
-
-      socket.emit('status', 'Initializing booking agent...');
 
       const agent = new BookingAgent(apiKey, username, password);
       await agent.initialize();
       
-      session = {
+      const newSession = {
         agent,
         socketId: socket.id,
-        pendingMessages: [],
+        pendingMessages: [] as Array<{ from: string; text: string; timestamp: string }>,
         isProcessing: false,
       };
-      sessions.set(sessionId, session);
+      sessions.set(sessionId, newSession);
       socketToSession.set(socket.id, sessionId);
+      
+      return newSession;
+    };
 
+    try {
+      socket.emit('status', 'Initializing booking agent...');
+      
+      // Create and store the initialization promise
+      const promise = initializeSession();
+      initializingSessions.set(sessionId, promise);
+      
+      session = await promise;
+      
       socket.emit('status', 'Connected! Ask me to book a tennis or pickleball court.');
       socket.emit('ready');
 
@@ -166,6 +190,9 @@ io.on('connection', async (socket) => {
       console.error(`Error initializing agent for session ${sessionId}:`, error);
       socket.emit('error', 'Failed to initialize booking agent');
       return;
+    } finally {
+      // Clean up initialization lock
+      initializingSessions.delete(sessionId);
     }
   }
 
